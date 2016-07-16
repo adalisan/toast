@@ -1729,6 +1729,7 @@ sub magicstring($)
   return ".Z" if /^\x1f\x9d/;
   return ".gz" if /^\x1f\x8b/;
   return ".bz2" if /^BZ/;
+  return ".xz" if /^\x{fd}7zXZ\x00/;
   return ".zip" if /^PK\x03\x04/;
   return ".rpm" if /^\xed\xab\xee\xdb/;
   return ".deb" if /^\!\<arch\>\n/;
@@ -2062,9 +2063,9 @@ sub extractstdin($)
   rpmextractstdin if $type eq ".rpm";
   debextractstdin if $type eq ".deb";
 
-  if($type =~ /^\.(Z|gz|bz2)$/)
+  if($type =~ /^\.(Z|gz|bz2|xz)$/)
   {
-    my($prog) = $type eq ".bz2" ? "bunzip2" : "gunzip";
+    my($prog) = $type eq ".bz2" ? "bunzip2" : $type eq ".xz" ? "unxz" : "gunzip";
     open(STDIN, "$prog |") || $prog eq "gunzip" && zfork || error("$prog: $!");
     binmode(STDIN) || error("binmode stdin: $!"); # perl 5.8.0 utf8 bug
     autoextractstdin;
@@ -2456,7 +2457,7 @@ sub findnewpkg($$)
         @links = linksfromurl($url);
         my(@urls) = grep(lookslikepkgurl($_, $name, $version), @links);
         my($ext);
-        for $ext (qw[.tar.bz2 .tar.gz .tgz .zip .deb .rpm])
+        for $ext (qw[.tar.xz .tar.bz2 .tar.gz .tgz .zip .deb .rpm])
         {
           my(@matches) = grep(stripquery($_) =~ /\Q$ext\E$/i, @urls);
 
@@ -4160,6 +4161,7 @@ sub polishrootdir($$)
   # XFree86 4.3.0 libGL.so needs this due to some kind of bug/interaction,
   # as do some binary packages:
   my($libdir) = path($rootdir, "lib");
+  my($lib64dir) = path($rootdir, "lib64");
   if(fixliblinks && -d($libdir))
   {
     my(%liblinks);
@@ -4188,6 +4190,34 @@ sub polishrootdir($$)
       }
     }
     safechmod($mode, $libdir);
+
+    if (`uname -m` =~ /x86_64/ && ! -d($lib64dir))
+    {
+      my(%lib64links);
+      fordir
+      {
+        return unless /^((lib.*\.(so|la|a))((\.[\d]+)*))$/;
+        return if exists($lib64links{$1}) && length($lib64links{$1}) > length;
+        $lib64links{$1} = path($libdir, $1);
+      } $libdir;
+      if(keys(%lib64links))
+      {
+        my($rootmode) = getmode($rootdir);
+        safechmod(0777, $rootdir);
+        optmd($lib64dir);
+        safechmod($rootmode, $rootdir);
+        for(sort(keys(%lib64links)))
+        {
+          my($from, $to) = ($lib64links{$_}, path($lib64dir, $_));
+          if(!-e($to) && !-l($to))
+          {
+            safechmod(0777, $lib64dir);
+            ln($from, $to);
+          }
+        }
+        safechmod($mode, $lib64dir);
+      }
+    }
   }
 }
 
