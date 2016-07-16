@@ -29,6 +29,7 @@ use 5; # oldest version that actually works might be 5.003; not sure....
 BEGIN { $^W = 1 } # use warnings
 BEGIN { $^H |= 0x602 } # use strict
 
+$ENV{'PERL_LWP_SSL_VERIFY_HOSTNAME'} = 0;
 # warn if "use warnings" and "use strict" are not both in effect
 if($^V && %SIG) # test requires perl 5.6.0 with working %SIG (not microperl)
 {
